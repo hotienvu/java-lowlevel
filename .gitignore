@@ -1,0 +1,41 @@
+target/
+.DS_Store
+.arc
+.phutil_module_cache
+
+# idea project files
+.idea/
+*.iml
+
+# ctags db
+/tags
+
+# etags db
+/TAGS
+
+# gtags db
+/GTAGS
+/GRTAGS
+/GPATH
+
+# idutils db
+/ID
+
+# eclipse project files
+.project
+.classpath
+.settings/
+collections/pom.xml.releaseBackup
+concurrency/pom.xml.releaseBackup
+config/pom.xml.releaseBackup
+jcommon-all/pom.xml.releaseBackup
+json/pom.xml.releaseBackup
+lifecycle/pom.xml.releaseBackup
+logging/pom.xml.releaseBackup
+memory/pom.xml.releaseBackup
+pom.xml.releaseBackup
+release.properties
+stats/pom.xml.releaseBackup
+testing/pom.xml.releaseBackup
+tmp/the-mess.tar
+util/pom.xml.releaseBackup
