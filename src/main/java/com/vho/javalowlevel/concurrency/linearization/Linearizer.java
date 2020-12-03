@@ -7,12 +7,15 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * Inspired by facebook j-common's Linearizer
+ */
 public class Linearizer {
   private static final long WAIT_TIMEOUT_SECONDS = 300;
   Logger LOG = LoggerFactory.getLogger(Linearizer.class);
 
-  private AtomicReference<LinearizationPoint> lastLinearPoint;
-  private AtomicInteger numLinearPoints;
+  private AtomicReference<LinearizationPoint> lastLinearPoint = new AtomicReference<>(null);
+  private AtomicReference<AtomicInteger> numOngoingPoints = new AtomicReference<>(new AtomicInteger(0));
 
   /**
    * creates an lock-object such that other objects of this type may interleave their start/complete
@@ -23,7 +26,7 @@ public class Linearizer {
    *
    */
   public synchronized ConcurrentPoint createConcurrentPoint() {
-    return new ConcurrentPointImpl();
+    return new ConcurrentPointImpl(lastLinearPoint.get(), numOngoingPoints.get());
   }
 
   /**
@@ -32,49 +35,85 @@ public class Linearizer {
    *
    */
   public synchronized LinearizationPoint createLinearizationPoint() {
-    return new LinearizationPointImpl();
+    AtomicInteger numNextPoints = new AtomicInteger(0);
+    AtomicInteger numPreviousPoints = numOngoingPoints.getAndSet(numNextPoints);
+    LinearizationPoint newLinearPoint = new LinearizationPointImpl(numPreviousPoints, numNextPoints);
+    lastLinearPoint.set(newLinearPoint);
+    return newLinearPoint;
   }
 
   private class ConcurrentPointImpl implements ConcurrentPoint {
+    LinearizationPoint previousLinearPoint;
+    private final AtomicInteger numConcurrentPoints;
 
-    public ConcurrentPointImpl() {
+    ConcurrentPointImpl(LinearizationPoint previousLinearPoint, AtomicInteger numConcurrentPoints) {
+      this.previousLinearPoint = previousLinearPoint;
+      this.numConcurrentPoints = numConcurrentPoints;
     }
 
     @Override
     public void start() {
-
+      if (previousLinearPoint != null) {
+        try {
+          previousLinearPoint.waitForCompletion();
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          throw new RuntimeException("Interrupted while waiting to start");
+        }
+      }
     }
 
     @Override
     public void complete() {
-
+      int pointsRemained = numConcurrentPoints.decrementAndGet();
+      if (pointsRemained == 0) {
+        synchronized (numConcurrentPoints) {
+          numConcurrentPoints.notifyAll();
+        }
+      }
     }
   }
 
   private class LinearizationPointImpl implements LinearizationPoint {
-    LinearizationPoint previousPoint;
-    CountDownLatch startLatch = new CountDownLatch(1);
-    CountDownLatch completeLatch = new CountDownLatch(1);
+    private final CountDownLatch startLatch = new CountDownLatch(1);
+    private final CountDownLatch completeLatch = new CountDownLatch(1);
+    private final AtomicInteger numPreviousConcurrentPoints;
+    private final AtomicInteger numNextConcurrentPoints;
 
-    public LinearizationPointImpl() {
-      previousPoint = lastLinearPoint.getAndSet(this);
+    LinearizationPointImpl(AtomicInteger numPreviousConcurrentPoints, AtomicInteger numNextConcurrentPoints) {
+      this.numPreviousConcurrentPoints = numPreviousConcurrentPoints;
+      this.numNextConcurrentPoints = numNextConcurrentPoints;
     }
 
     @Override
     public void start() {
-      if (previousPoint != null) {
+      waitForPreviousPoints();
+      numNextConcurrentPoints.incrementAndGet();
+      startLatch.countDown();
+    }
+
+    private void waitForPreviousPoints() {
+      while (numPreviousConcurrentPoints.get() > 0) {
         try {
-          previousPoint.waitForCompletion();
+          synchronized (numPreviousConcurrentPoints) {
+            numPreviousConcurrentPoints.wait();
+          }
         } catch (InterruptedException e) {
           Thread.currentThread().interrupt();
+          throw new RuntimeException("Interrupted while waiting to start");
         }
       }
-      startLatch.countDown();
     }
 
     @Override
     public void complete() {
       completeLatch.countDown();
+      synchronized (numNextConcurrentPoints) {
+        int pointsRemained = numNextConcurrentPoints.decrementAndGet();
+        if (pointsRemained == 0) {
+          numNextConcurrentPoints.notifyAll();
+        }
+      }
     }
 
     @Override
