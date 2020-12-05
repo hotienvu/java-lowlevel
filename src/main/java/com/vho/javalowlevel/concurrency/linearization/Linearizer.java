@@ -23,27 +23,28 @@ public class Linearizer {
    *
    * <p>calling start() on the resulting ConcurrentPoint will block until the previous
    * LinearizationPoint calls complete()
-   *
    */
   public synchronized ConcurrentPoint createConcurrentPoint() {
+    numOngoingPoints.get().incrementAndGet();
     return new ConcurrentPointImpl(lastLinearPoint.get(), numOngoingPoints.get());
   }
 
   /**
    * calling start() on the resulting LinearizationPoint will block until all previously generated
    * Points call complete()
-   *
    */
   public synchronized LinearizationPoint createLinearizationPoint() {
-    AtomicInteger numNextPoints = new AtomicInteger(0);
+    AtomicInteger numNextPoints = new AtomicInteger(1);
     AtomicInteger numPreviousPoints = numOngoingPoints.getAndSet(numNextPoints);
     LinearizationPoint newLinearPoint = new LinearizationPointImpl(numPreviousPoints, numNextPoints);
     lastLinearPoint.set(newLinearPoint);
     return newLinearPoint;
   }
 
-  private class ConcurrentPointImpl implements ConcurrentPoint {
-    LinearizationPoint previousLinearPoint;
+  private static class ConcurrentPointImpl implements ConcurrentPoint {
+    private static final Logger LOG = LoggerFactory.getLogger(ConcurrentPointImpl.class);
+
+    private final LinearizationPoint previousLinearPoint;
     private final AtomicInteger numConcurrentPoints;
 
     ConcurrentPointImpl(LinearizationPoint previousLinearPoint, AtomicInteger numConcurrentPoints) {
@@ -53,6 +54,7 @@ public class Linearizer {
 
     @Override
     public void start() {
+      LOG.info("waiting for previous linearization points");
       if (previousLinearPoint != null) {
         try {
           previousLinearPoint.waitForCompletion();
@@ -61,10 +63,12 @@ public class Linearizer {
           throw new RuntimeException("Interrupted while waiting to start");
         }
       }
+      LOG.info("done waiting for previous linearization points");
     }
 
     @Override
     public void complete() {
+      LOG.info("completed");
       int pointsRemained = numConcurrentPoints.decrementAndGet();
       if (pointsRemained == 0) {
         synchronized (numConcurrentPoints) {
@@ -74,7 +78,9 @@ public class Linearizer {
     }
   }
 
-  private class LinearizationPointImpl implements LinearizationPoint {
+  private static class LinearizationPointImpl implements LinearizationPoint {
+    private static final Logger LOG = LoggerFactory.getLogger(LinearizationPointImpl.class);
+
     private final CountDownLatch startLatch = new CountDownLatch(1);
     private final CountDownLatch completeLatch = new CountDownLatch(1);
     private final AtomicInteger numPreviousConcurrentPoints;
@@ -87,26 +93,28 @@ public class Linearizer {
 
     @Override
     public void start() {
+      LOG.info("waiting for previous points");
       waitForPreviousPoints();
-      numNextConcurrentPoints.incrementAndGet();
+      LOG.info("done waiting for previous points");
       startLatch.countDown();
     }
 
     private void waitForPreviousPoints() {
-      while (numPreviousConcurrentPoints.get() > 0) {
-        try {
-          synchronized (numPreviousConcurrentPoints) {
+      synchronized (numPreviousConcurrentPoints) {
+        while (numPreviousConcurrentPoints.get() > 0) {
+          try {
             numPreviousConcurrentPoints.wait();
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while waiting to start");
           }
-        } catch (InterruptedException e) {
-          Thread.currentThread().interrupt();
-          throw new RuntimeException("Interrupted while waiting to start");
         }
       }
     }
 
     @Override
     public void complete() {
+      LOG.info("completed");
       completeLatch.countDown();
       synchronized (numNextConcurrentPoints) {
         int pointsRemained = numNextConcurrentPoints.decrementAndGet();
