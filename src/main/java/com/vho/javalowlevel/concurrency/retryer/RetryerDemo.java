@@ -4,7 +4,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class RetryerDemo {
   public static void main(String[] args) {
-    Retryer<Boolean> tryer = Retryer.<Boolean>builder()
+    GenericRetryer<Boolean> tryer = GenericRetryer.<Boolean>builder()
       .withRetryIfExceptionOfType(RuntimeException.class)
       .withStopStrategy(StopStrategies.maxAttemptsStrategy(10))
       .withWaitStrategy(WaitStrategies.threadSleepConstantDurationStrategy(1000))
