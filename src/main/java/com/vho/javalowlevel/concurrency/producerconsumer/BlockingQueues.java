@@ -1,15 +1,13 @@
 package com.vho.javalowlevel.concurrency.producerconsumer;
 
 import java.util.Deque;
-import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.BlockingDeque;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingDeque;
 
 public class BlockingQueues {
 
   private static final int MAX_CAPACITY = 10;
-  private static final ConcurrentMap<String, Integer> stats = new ConcurrentHashMap<>();
-  private static final AtomicInteger totalConsumed = new AtomicInteger();
-  private static final AtomicInteger totalProduced = new AtomicInteger();
 
   private static class Consumer extends AbstractConsumer {
 
@@ -50,8 +48,6 @@ public class BlockingQueues {
         Thread.currentThread().interrupt();
         throw new RuntimeException(name + " got interrupted");
       }
-      totalProduced.incrementAndGet();
-      stats.put(name, stats.getOrDefault(name, 0) + 1);
     }
   }
 
