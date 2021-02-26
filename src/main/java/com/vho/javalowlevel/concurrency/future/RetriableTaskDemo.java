@@ -1,7 +1,5 @@
 package com.vho.javalowlevel.concurrency.future;
 
-import com.sun.org.apache.xpath.internal.operations.Bool;
-
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
 
